@@ -1,4 +1,4 @@
-package httpfileserver
+package server
 
 import (
 	"html/template"
