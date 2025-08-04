@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>文件列表</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #f9f9f9;
+        margin: 0;
+        padding: 0;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 50px auto;
+        padding: 30px;
+        background-color: #ffffff;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        border-radius: 8px;
+        text-align: center;
+      }
+
+      h1 {
+        color: #333;
+        margin-bottom: 30px;
+      }
+
+      ul {
+        list-style: none;
+        padding: 0;
+      }
+
+      li {
+        padding: 10px 20px;
+        margin: 8px 0;
+        border-radius: 5px;
+        background-color: #f0f0f0;
+        text-align: left;
+        transition: background-color 0.3s;
+      }
+
+      li:hover {
+        background-color: #e0e0e0;
+      }
+
+      a {
+        text-decoration: none;
+        color: #0066cc;
+        font-size: 16px;
+        display: flex;
+        align-items: center;
+      }
+
+      .icon {
+        margin-right: 10px;
+        font-size: 18px;
+      }
+
+      .file {
+        color: #4a4a4a;
+      }
+
+      .folder {
+        color: #d08c00;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>📂 当前目录: {{.Path}}</h1>
+      <ul>
+        {{range .Items}}
+        <li>
+          <a href="{{.Href}}">
+            <span class="icon">{{if .IsDir}}📁{{else}}📄{{end}}</span>
+            <span class="{{if .IsDir}}folder{{else}}file{{end}}"
+              >{{.Name}}</span
+            >
+          </a>
+        </li>
+        {{end}}
+      </ul>
+    </div>
+  </body>
+</html>
