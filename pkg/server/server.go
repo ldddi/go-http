@@ -23,5 +23,4 @@ type ServerConfig struct {
 
 type Server struct {
 	ServerConfig
-	// fs afero.Fs
 }
