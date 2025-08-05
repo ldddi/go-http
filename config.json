@@ -3,9 +3,9 @@
   "work_dir": "D:\\project\\vscode\\golang\\go-http\\config.json",
   "max_upload_size": 10485760,
 
-  "shutdown_time": "10000ms",
-  "read_timeout": "30000ms",
-  "write_timeout": "30000ms",
+  "shutdown_time": 10000,
+  "read_timeout": 30000,
+  "write_timeout": 30000,
 
   "enable_auth": false,
   "enable_cors": true,

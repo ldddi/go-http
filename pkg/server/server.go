@@ -1,5 +1,7 @@
 package server
 
+import "time"
+
 type ServerConfig struct {
 	// server address 127.0.0.1:8888
 	Addr string `json:"addr"`
@@ -10,17 +12,22 @@ type ServerConfig struct {
 	// shutdown timeout
 	ShutdownTimeout int `json:"shutdown_time"`
 	// read timeout
-	ReadTimeout int `json:"read_timeout"`
+	ReadTimeout time.Duration `json:"read_timeout"`
 	// write timeout
-	WriteTimeout int `json:"write_timeout"`
+	WriteTimeout time.Duration `json:"write_timeout"`
 	// enable auth
-	EnableAuth bool `json:"enable_auth"`
+	EnableAuth *bool `json:"enable_auth"`
 	// enable CORS
-	EnableCORS bool `json:"enable_cors"`
+	EnableCORS *bool `json:"enable_cors"`
 	// file Naming strategy
 	FileNamingStrategy string `json:"file_naming_strategy"`
 }
 
 type Server struct {
 	ServerConfig
+	// fs afero.Fs
+}
+
+func NewServer(config ServerConfig) *Server {
+	return &Server{ServerConfig: config}
 }

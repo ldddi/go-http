@@ -8,8 +8,10 @@ import (
 	"httpserver/pkg/utils"
 	"log"
 	"os"
-	"path/filepath"
 	"strconv"
+	"time"
+
+	"dario.cat/mergo"
 )
 
 type boolPrtFlag struct {
@@ -58,74 +60,109 @@ func BoolPointer(v bool) *bool {
 	return &v
 }
 
+var DefaultConfig = server.ServerConfig{
+	Addr:               "127.0.0.1:8080",
+	WorkDir:            "",
+	FileNamingStrategy: "uuid",
+
+	MaxUploadSize:   1024 * 1024,
+	ShutdownTimeout: 15000,
+	ReadTimeout:     time.Duration(15 * time.Second),
+	WriteTimeout:    0,
+
+	EnableCORS: nil,
+	EnableAuth: nil,
+}
+
 // args config
 type App struct {
-	FlagSet        *flag.FlagSet
-	Addr           string
-	WorkDir        string
-	ConfigFilePath string
+	FlagSet *flag.FlagSet
+
+	Addr               string
+	WorkDir            string
+	ConfigFilePath     string
+	FileNamingStrategy string
+
+	MaxUploadSize   int64
+	ShutdownTimeout int
+	ReadTimeout     int
+	WriteTimeout    int
 
 	EnableAuth boolOpt
 	EnableCORS boolOpt
-
-	FileNamingStrategy string
-}
-
-func (a *App) String() string {
-	enableAuthStr := "<nil>"
-	if a.EnableAuth.IsSet() {
-		enableAuthStr = fmt.Sprint(a.EnableAuth.Val())
-	}
-	enableCORSStr := "<nil>"
-	if a.EnableCORS.IsSet() {
-		enableCORSStr = fmt.Sprint(a.EnableCORS.Val())
-	}
-	return fmt.Sprintf(
-		"App{\n"+
-			"\tFlagSet: %p\n"+
-			"\tAddr: %q\n"+
-			"\tWorkDir: %q\n"+
-			"\tConfigFilePath: %q\n"+
-			"\tEnableAuth: %s\n"+
-			"\tEnableCORS: %s\n"+
-			"\tFileNamingStrategy: %q\n"+
-			"}",
-		a.FlagSet,
-		a.Addr,
-		a.WorkDir,
-		a.ConfigFilePath,
-		enableAuthStr,
-		enableCORSStr,
-		a.FileNamingStrategy,
-	)
 }
 
 func (a *App) Run(args []string) {
-	a.ParseConfig(args)
-}
-
-func (a *App) ParseConfig(args []string) {
-	if err := a.FlagSet.Parse(args); err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Printf("%v\n", a)
-
-	// default config file
-	if a.ConfigFilePath == "" {
-		rootDir, err := utils.GetProjectRoot()
-		if err != nil {
-			log.Fatal(err)
-		}
-		a.ConfigFilePath = filepath.Join(rootDir, "config.json")
-	}
-
-	data, err := os.ReadFile(a.ConfigFilePath)
+	config, err := a.ParseConfig(args)
 	if err != nil {
 		log.Fatal(err)
 	}
-	serverConfig := &server.ServerConfig{}
-	json.Unmarshal(data, serverConfig)
 
-	fmt.Println(serverConfig)
+	server.NewServer(*config)
+}
+
+func (a *App) ParseConfig(args []string) (*server.ServerConfig, error) {
+	if err := a.FlagSet.Parse(args); err != nil {
+		return nil, fmt.Errorf("failed parse flags: %w", err)
+	}
+
+	config := DefaultConfig
+	log.Printf("default config: %+v\n", config)
+
+	if a.ConfigFilePath != "" {
+		f, err := os.Open(a.ConfigFilePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed open configFile: %w", err)
+		}
+		defer f.Close()
+
+		fileConfig := server.ServerConfig{}
+		if err := json.NewDecoder(f).Decode(&fileConfig); err != nil {
+			return nil, fmt.Errorf("failed decode config file: %w", err)
+		}
+
+		if err := mergo.Merge(&config, fileConfig, mergo.WithOverride); err != nil {
+			return nil, fmt.Errorf("failed merge default and fileconfig: %w", err)
+		}
+		log.Printf("default config and fileconfig merge result: %+v\n", config)
+	} else {
+		log.Printf("no provided fileconfig\n")
+	}
+
+	if a.WorkDir == "" {
+		rootDir, err := utils.GetProjectRoot()
+		if err != nil {
+			return nil, err
+		}
+
+		a.WorkDir = rootDir
+		log.Printf("no provided WorkDir, use default WorkDir in \"%v\"", a.WorkDir)
+	} else {
+		log.Printf("use WorkDir in \"%v\"", a.WorkDir)
+	}
+
+	argsConfig := server.ServerConfig{
+		Addr:               a.Addr,
+		WorkDir:            a.WorkDir,
+		FileNamingStrategy: a.FileNamingStrategy,
+
+		MaxUploadSize:   a.MaxUploadSize,
+		ShutdownTimeout: a.ShutdownTimeout,
+		ReadTimeout:     time.Duration(a.ReadTimeout),
+		WriteTimeout:    time.Duration(a.WriteTimeout),
+	}
+
+	if a.EnableCORS.isSet {
+		argsConfig.EnableCORS = &a.EnableCORS.val
+	}
+	if a.EnableAuth.isSet {
+		argsConfig.EnableAuth = &a.EnableAuth.val
+	}
+
+	if err := mergo.Merge(&config, argsConfig, mergo.WithOverride); err != nil {
+		return nil, fmt.Errorf("failed to merge config from flags: %w", err)
+	}
+	log.Printf("final config: %+v\n", config)
+
+	return &config, nil
 }
