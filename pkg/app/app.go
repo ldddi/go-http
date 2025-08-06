@@ -8,7 +8,9 @@ import (
 	"httpserver/pkg/utils"
 	"log"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"dario.cat/mergo"
@@ -92,15 +94,27 @@ type App struct {
 	EnableCORS boolOpt
 }
 
+// Run start app
+// Start initializes the server instance and starts the application.
 func (a *App) Run(args []string) {
 	config, err := a.ParseConfig(args)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	server.NewServer(*config)
+	s := server.NewServer(*config)
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	if err := s.Start(stop, nil); err != nil {
+		log.Fatal(err)
+	}
 }
 
+// ParseConfig parses the configuration for service.
+// It includes three types of configurations: default, config file, and command-line arguments.
+// The priority from high to low is: command-line arguments, config file, and default.
 func (a *App) ParseConfig(args []string) (*server.ServerConfig, error) {
 	if err := a.FlagSet.Parse(args); err != nil {
 		return nil, fmt.Errorf("failed parse flags: %w", err)

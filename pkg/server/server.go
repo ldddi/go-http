@@ -1,6 +1,16 @@
 package server
 
-import "time"
+import (
+	"context"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/gorilla/mux"
+)
 
 type ServerConfig struct {
 	// server address 127.0.0.1:8888
@@ -30,4 +40,45 @@ type Server struct {
 
 func NewServer(config ServerConfig) *Server {
 	return &Server{ServerConfig: config}
+}
+
+func f(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func (s *Server) Start(stop chan os.Signal, ready chan struct{}) error {
+	r := mux.NewRouter()
+	r.HandleFunc("/upload", f)
+
+	srv := http.Server{
+		Addr:         s.Addr,
+		Handler:      r,
+		ReadTimeout:  s.ReadTimeout,
+		WriteTimeout: s.WriteTimeout,
+	}
+
+	l, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		return fmt.Errorf("fail to create Listener: %w", err)
+	}
+
+	ret := make(chan error, 1)
+	go func() {
+		log.Printf("server start to: %v", srv.Addr)
+		if err := srv.Serve(l); err != nil && err != http.ErrServerClosed {
+			ret <- fmt.Errorf("failed to start server: %w", err)
+		}
+		log.Printf("server successful shut down")
+		ret <- nil
+	}()
+
+	<-stop
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err = srv.Shutdown(ctx); err != nil {
+		return fmt.Errorf("failed to shut down server: %w", err)
+	}
+
+	return <-ret
 }
