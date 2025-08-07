@@ -8,6 +8,7 @@
       "name": "Launch Package",
       "type": "go",
       "request": "launch",
+      "console": "integratedTerminal",
       "mode": "auto",
       "program": "${workspaceFolder}\\cmd",
       "args": ["-enable_cors", "true"]

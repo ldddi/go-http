@@ -46,6 +46,9 @@ func f(w http.ResponseWriter, r *http.Request) {
 
 }
 
+// Start starts the HTTP server and listens for shutdown signals
+// stop: channel to receive termination signals for graceful shutdown
+// ready: channel to signal when server is ready to accept connections
 func (s *Server) Start(stop chan os.Signal, ready chan struct{}) error {
 	r := mux.NewRouter()
 	r.HandleFunc("/upload", f)
