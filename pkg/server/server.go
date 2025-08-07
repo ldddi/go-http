@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -38,17 +39,94 @@ type Server struct {
 	// fs afero.Fs
 }
 
+type ErrorMsg struct {
+	Ok    bool   `json:"ok"`
+	Error string `json:"error"`
+}
+
+type SuccessMsg struct {
+	Ok   bool   `json:"ok"`
+	Data string `json:"data"`
+}
+
 func NewServer(config ServerConfig) *Server {
 	return &Server{ServerConfig: config}
 }
 
-func f(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handle(f func(http.ResponseWriter, *http.Request) (int, any)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		status, result := f(w, r)
+		var respBody []byte
 
+		// to json
+		if result != nil {
+			switch v := result.(type) {
+			case error:
+				result = ErrorMsg{Ok: false, Error: v.Error()}
+			}
+
+			respBytes, err := json.Marshal(result)
+			if err != nil {
+				log.Printf("failed to marshal response: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			respBody = respBytes
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+
+		if _, err := w.Write(respBody); err != nil {
+			log.Printf("failed to write response: %v", err)
+		}
+
+	}
+}
+
+func (s *Server) uploadFileHandler(w http.ResponseWriter, r *http.Request) (int, any) {
+	return http.StatusOK, SuccessMsg{Ok: true, Data: "File uploaded successfully"}
+}
+
+func (s *Server) downloadFileHandler(w http.ResponseWriter, r *http.Request) (int, any) {
+	return http.StatusOK, SuccessMsg{Ok: true, Data: "File downloaded successfully"}
+}
+
+func (s *Server) getFileHandler(w http.ResponseWriter, r *http.Request) (int, any) {
+	return http.StatusOK, SuccessMsg{Ok: true, Data: "File retrieved successfully"}
+}
+
+func (s *Server) deleteFileHandler(w http.ResponseWriter, r *http.Request) (int, any) {
+	return http.StatusOK, SuccessMsg{Ok: true, Data: "File deleted successfully"}
+}
+
+func notFoundHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotFound)
+	w.Header().Set("Content-Type", "application/json")
+	resp := ErrorMsg{Ok: false, Error: "Not Found"}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("failed to write response: %v", err)
+	}
+}
+
+func methodNotAllowedHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusMethodNotAllowed)
+	w.Header().Set("Content-Type", "application/json")
+	resp := ErrorMsg{Ok: false, Error: "Method not allowed"}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("failed to write response: %v", err)
+	}
 }
 
 func (s *Server) Start(stop chan os.Signal, ready chan struct{}) error {
 	r := mux.NewRouter()
-	r.HandleFunc("/upload", f)
+	r.HandleFunc("/upload", s.handle(s.uploadFileHandler)).Methods("POST")
+	r.HandleFunc("/download", s.handle(s.downloadFileHandler)).Methods("GET")
+	r.HandleFunc("/files", s.handle(s.getFileHandler)).Methods("GET")
+	r.HandleFunc("/delete", s.handle(s.deleteFileHandler)).Methods("DELETE")
+
+	r.NotFoundHandler = http.HandlerFunc(notFoundHandler)
+	r.MethodNotAllowedHandler = http.HandlerFunc(methodNotAllowedHandler)
 
 	srv := http.Server{
 		Addr:         s.Addr,
@@ -64,7 +142,7 @@ func (s *Server) Start(stop chan os.Signal, ready chan struct{}) error {
 
 	ret := make(chan error, 1)
 	go func() {
-		log.Printf("server start to: %v", srv.Addr)
+		log.Printf("server will start to: %v", srv.Addr)
 		if err := srv.Serve(l); err != nil && err != http.ErrServerClosed {
 			ret <- fmt.Errorf("failed to start server: %w", err)
 		}
