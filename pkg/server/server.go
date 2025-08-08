@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	resp "httpserver/internal/response"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
-	"strconv"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -41,48 +44,40 @@ type Server struct {
 	// fs afero.Fs
 }
 
-type ErrorMsg struct {
-	Ok    bool   `json:"ok"`
-	Error string `json:"error"`
-}
-
-type SuccessMsg struct {
-	Ok   bool   `json:"ok"`
-	Data string `json:"data"`
-}
-
 func NewServer(config ServerConfig) *Server {
 	return &Server{ServerConfig: config}
 }
 
-func (s *Server) handle(f func(http.ResponseWriter, *http.Request) (int, any)) http.HandlerFunc {
+func errorResponse(status int, message error) resp.Response {
+	return resp.NewErrorMsgBuilder().WithStatus(status).WithMessage(message.Error()).Build()
+}
+
+func successResponse(status int, message string, data any) resp.Response {
+	if status < 200 || status >= 300 {
+		log.Printf("warning: success response with non-2xx status: %d", status)
+	}
+	return resp.NewSuccessMsgBuilder().WithStatus(status).WithMessage(message).WithData(data).Build()
+}
+
+func (s *Server) handle(f func(http.ResponseWriter, *http.Request) resp.Response) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		status, result := f(w, r)
+
+		result := f(w, r)
 		var respBody []byte
-
+		fmt.Println(result)
 		// to json
-		if result != nil {
-			switch v := result.(type) {
-			case error:
-				result = ErrorMsg{Ok: false, Error: v.Error()}
-			}
-
-			respBytes, err := json.Marshal(result)
-			if err != nil {
-				log.Printf("failed to marshal response: %v", err)
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			respBody = respBytes
+		respBody, err := json.Marshal(result)
+		if err != nil {
+			log.Printf("failed to marshal response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
-
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
+		w.WriteHeader(result.GetStatus())
 
 		if _, err := w.Write(respBody); err != nil {
 			log.Printf("failed to write response: %v", err)
 		}
-
 	}
 }
 
@@ -93,49 +88,110 @@ var (
 
 // query params:
 // - overwrite: if true, allows overwriting the existing file
-func (s *Server) uploadFileHandler(w http.ResponseWriter, r *http.Request) (int, any) {
-	overwrite := r.URL.Query().Get(overwriteKey)
-	if ok, err := strconv.ParseBool(overwrite); err != nil {
-		log.Printf("invalid overwrite parameter: %v\n", err)
-		return http.StatusBadRequest, errors.New("invalid overwrite parameter, please use true or false")
-	}
+func (s *Server) uploadFileHandler(w http.ResponseWriter, r *http.Request) resp.Response {
 
-	file, info, err := r.FormFile(fileKey)
+	// overwrite := r.URL.Query().Get(overwriteKey)
+	// if ok, err := strconv.ParseBool(overwrite); err != nil {
+	// 	log.Printf("invalid overwrite parameter: %v\n", err)
+	// 	return errorResponse(http.StatusBadRequest, errors.New("invalid overwrite parameter"))
+	// }
+
+	// file, info, err := r.FormFile(fileKey)
+	// if err != nil {
+	// 	log.Printf("failed to get file from request: %v\n", err)
+	// 	return errorResponse(http.StatusBadRequest, errors.New("failed to get file from request"))
+	// }
+	// defer file.Close()
+
+	return successResponse(http.StatusOK, "File uploaded successfully", nil)
+}
+
+// query params:
+// - path: the path of the file to download
+func (s *Server) downloadFileHandler(w http.ResponseWriter, r *http.Request) resp.Response {
+	path := r.URL.Query().Get("path")
+	path = strings.TrimPrefix(path, "/")
+	localPath := filepath.Join(s.WorkDir, path)
+	info, err := os.Stat(localPath)
 	if err != nil {
-		log.Printf("failed to get file from request: %v\n", err)
-		return http.StatusBadRequest, errors.New("failed to get file from request")
+		log.Println("file not found or nu auth:", err)
+		return errorResponse(http.StatusNotFound, errors.New("file not found or nu auth"))
 	}
-	defer file.Close()
 
-	return http.StatusOK, SuccessMsg{Ok: true, Data: "File uploaded successfully"}
+	if info.IsDir() {
+		log.Println("cannot download a directory")
+		return errorResponse(http.StatusBadRequest, errors.New("cannot download a directory"))
+	}
+
+	file, err := os.Open(localPath)
+	if err != nil {
+		log.Println("failed to open file:", err)
+		return errorResponse(http.StatusInternalServerError, errors.New("failed to open file"))
+	}
+
+	_, err = io.Copy(w, file)
+	if err != nil {
+		log.Println("failed to write file to response:", err)
+		return errorResponse(http.StatusInternalServerError, errors.New("failed to write file to response"))
+	}
+
+	return successResponse(http.StatusOK, "File download successfully", nil)
 }
 
-func (s *Server) downloadFileHandler(w http.ResponseWriter, r *http.Request) (int, any) {
-	return http.StatusOK, SuccessMsg{Ok: true, Data: "File downloaded successfully"}
+func (s *Server) getFileHandler(w http.ResponseWriter, r *http.Request) resp.Response {
+
+	return successResponse(http.StatusOK, "File uploaded successfully", nil)
 }
 
-func (s *Server) getFileHandler(w http.ResponseWriter, r *http.Request) (int, any) {
-	return http.StatusOK, SuccessMsg{Ok: true, Data: "File retrieved successfully"}
-}
+// query params:
+// - path: the path of the file to delete
+func (s *Server) deleteFileHandler(w http.ResponseWriter, r *http.Request) resp.Response {
+	path := r.URL.Query().Get("path")
+	path = strings.TrimPrefix(path, "/")
+	localPath := filepath.Join(s.WorkDir, path)
+	info, err := os.Stat(localPath)
+	if err != nil {
+		log.Println("file not found:", err)
+		return errorResponse(http.StatusNotFound, errors.New("file not found"))
+	}
 
-func (s *Server) deleteFileHandler(w http.ResponseWriter, r *http.Request) (int, any) {
-	return http.StatusOK, SuccessMsg{Ok: true, Data: "File deleted successfully"}
+	if info.IsDir() {
+		if err = os.RemoveAll(localPath); err != nil {
+			log.Println("failed to delete directory:", err)
+			return errorResponse(http.StatusInternalServerError, errors.New("failed to delete directory"))
+		}
+		return successResponse(http.StatusOK, "Directory delete successfully", nil)
+	} else {
+		if err = os.Remove(localPath); err != nil {
+			log.Println("failed to delete file:", err)
+			return errorResponse(http.StatusInternalServerError, errors.New("failed to delete file"))
+		}
+		return successResponse(http.StatusOK, "File delete successfully", nil)
+	}
 }
 
 func notFoundHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotFound)
 	w.Header().Set("Content-Type", "application/json")
-	resp := ErrorMsg{Ok: false, Error: "Not Found"}
+	resp := errorResponse(http.StatusNotFound, errors.New("not found"))
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		log.Printf("failed to write response: %v", err)
 	}
 }
 
 func methodNotAllowedHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusMethodNotAllowed)
+
 	w.Header().Set("Content-Type", "application/json")
-	resp := ErrorMsg{Ok: false, Error: "Method not allowed"}
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	resp := errorResponse(http.StatusMethodNotAllowed, errors.New("method not allowed"))
+	respBody, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("failed to marshal response: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusMethodNotAllowed)
+
+	if _, err := w.Write(respBody); err != nil {
 		log.Printf("failed to write response: %v", err)
 	}
 }
@@ -147,7 +203,7 @@ func (s *Server) Start(stop chan os.Signal, ready chan struct{}) error {
 	r := mux.NewRouter()
 	r.HandleFunc("/upload", s.handle(s.uploadFileHandler)).Methods("POST")
 	r.HandleFunc("/download", s.handle(s.downloadFileHandler)).Methods("GET")
-	r.HandleFunc("/files", s.handle(s.getFileHandler)).Methods("GET")
+	r.HandleFunc("/files/{path:.*}", s.handle(s.BrowserGetHandler)).Methods("GET")
 	r.HandleFunc("/delete", s.handle(s.deleteFileHandler)).Methods("DELETE")
 
 	r.NotFoundHandler = http.HandlerFunc(notFoundHandler)

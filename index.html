@@ -73,7 +73,7 @@
       <ul>
         {{range .Items}}
         <li>
-          <a href="{{.Href}}">
+          <a href="/files{{.Href}}">
             <span class="icon">{{if .IsDir}}📁{{else}}📄{{end}}</span>
             <span class="{{if .IsDir}}folder{{else}}file{{end}}"
               >{{.Name}}</span

@@ -1,12 +1,15 @@
 package server
 
 import (
+	"errors"
 	"html/template"
+	resp "httpserver/internal/response"
 	"httpserver/pkg/utils"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -23,9 +26,6 @@ type PageData struct {
 	Items []FileItem
 }
 
-// 修改路径：从 cmd 目录执行时的相对路径
-const baseDir = "../files"
-
 // 修改模板路径
 var dirTemplate *template.Template
 
@@ -38,28 +38,22 @@ func init() {
 	dirTemplate = template.Must(template.ParseFiles(filepath.Join(rootDir, "index.html")))
 }
 
-func BrowserGetHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) BrowserGetHandler(w http.ResponseWriter, r *http.Request) resp.Response {
 	reqPath := mux.Vars(r)["path"]
-
-	if reqPath == "" {
-		reqPath = "/"
-	}
-
 	reqPath = strings.TrimPrefix(reqPath, "/")
-
-	localPath := filepath.Join(baseDir, reqPath)
+	localPath := filepath.Join(s.WorkDir, reqPath)
 
 	info, err := os.Stat(localPath)
 	if err != nil {
-		http.NotFound(w, r)
-		return
+		log.Println("file not exit or no auth", err)
+		return errorResponse(http.StatusBadRequest, errors.New("file not exit or no auth"))
 	}
 
 	if info.IsDir() {
 		files, err := os.ReadDir(localPath)
 		if err != nil {
-			http.Error(w, "无法读取目录", http.StatusInternalServerError)
-			return
+			log.Println("failed to open directory", err)
+			return errorResponse(http.StatusBadRequest, errors.New("failed to open directory"))
 		}
 
 		var items []FileItem
@@ -94,21 +88,22 @@ func BrowserGetHandler(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		displayPath := "/" + reqPath
-		if displayPath == "/" {
-			displayPath = "/files"
-		}
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].IsDir && !items[j].IsDir
+		})
 
 		err = dirTemplate.Execute(w, PageData{
-			Path:  displayPath,
+			Path:  reqPath,
 			Items: items,
 		})
 		if err != nil {
-			http.Error(w, "模板渲染失败: "+err.Error(), http.StatusInternalServerError)
-			return
+			log.Println("failed to execute template: ", err)
+			return errorResponse(http.StatusInternalServerError, errors.New("failed to execute template"))
 		}
 	} else {
 		// 提供文件下载
+		w.Header().Set("Content-Disposition", "attachment;")
 		http.ServeFile(w, r, localPath)
 	}
+	return nil
 }
