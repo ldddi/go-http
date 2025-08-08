@@ -3,11 +3,13 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -84,7 +86,27 @@ func (s *Server) handle(f func(http.ResponseWriter, *http.Request) (int, any)) h
 	}
 }
 
+var (
+	overwriteKey = "overwrite"
+	fileKey      = "file"
+)
+
+// query params:
+// - overwrite: if true, allows overwriting the existing file
 func (s *Server) uploadFileHandler(w http.ResponseWriter, r *http.Request) (int, any) {
+	overwrite := r.URL.Query().Get(overwriteKey)
+	if ok, err := strconv.ParseBool(overwrite); err != nil {
+		log.Printf("invalid overwrite parameter: %v\n", err)
+		return http.StatusBadRequest, errors.New("invalid overwrite parameter, please use true or false")
+	}
+
+	file, info, err := r.FormFile(fileKey)
+	if err != nil {
+		log.Printf("failed to get file from request: %v\n", err)
+		return http.StatusBadRequest, errors.New("failed to get file from request")
+	}
+	defer file.Close()
+
 	return http.StatusOK, SuccessMsg{Ok: true, Data: "File uploaded successfully"}
 }
 
@@ -145,7 +167,7 @@ func (s *Server) Start(stop chan os.Signal, ready chan struct{}) error {
 
 	ret := make(chan error, 1)
 	go func() {
-		log.Printf("server will start to: %v", srv.Addr)
+		log.Printf("server start to: %v", srv.Addr)
 		if err := srv.Serve(l); err != nil && err != http.ErrServerClosed {
 			ret <- fmt.Errorf("failed to start server: %w", err)
 		}
