@@ -11,7 +11,7 @@
       "console": "integratedTerminal",
       "mode": "auto",
       "program": "${workspaceFolder}\\cmd",
-      "args": ["-enable_cors", "true"]
+      "args": []
     }
   ]
 }

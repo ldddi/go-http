@@ -1,10 +1,11 @@
 package server
 
 import (
-	"errors"
+	"fmt"
 	"html/template"
-	resp "httpserver/internal/response"
+	logger "httpserver/pkg/log"
 	"httpserver/pkg/utils"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -38,22 +39,24 @@ func init() {
 	dirTemplate = template.Must(template.ParseFiles(filepath.Join(rootDir, "index.html")))
 }
 
-func (s *Server) BrowserGetHandler(w http.ResponseWriter, r *http.Request) resp.Response {
+func (s *Server) BrowserGetHandler(w http.ResponseWriter, r *http.Request) {
 	reqPath := mux.Vars(r)["path"]
 	reqPath = strings.TrimPrefix(reqPath, "/")
 	localPath := filepath.Join(s.WorkDir, reqPath)
 
 	info, err := os.Stat(localPath)
 	if err != nil {
-		log.Println("file not exit or no auth", err)
-		return errorResponse(http.StatusBadRequest, errors.New("file not exit or no auth"))
+		logger.Error(fmt.Sprintf("file not exit or no auth: %v", err))
+		http.Error(w, "file not exit or no auth", http.StatusBadRequest)
+		return
 	}
 
 	if info.IsDir() {
 		files, err := os.ReadDir(localPath)
 		if err != nil {
-			log.Println("failed to open directory", err)
-			return errorResponse(http.StatusBadRequest, errors.New("failed to open directory"))
+			logger.Error(fmt.Sprintf("failed to open directory: %v", err))
+			http.Error(w, "failed to open directory", http.StatusBadRequest)
+			return
 		}
 
 		var items []FileItem
@@ -97,13 +100,24 @@ func (s *Server) BrowserGetHandler(w http.ResponseWriter, r *http.Request) resp.
 			Items: items,
 		})
 		if err != nil {
-			log.Println("failed to execute template: ", err)
-			return errorResponse(http.StatusInternalServerError, errors.New("failed to execute template"))
+			logger.Error(fmt.Sprintf("failed to execute template: %v", err))
+			http.Error(w, "failed to execute template", http.StatusInternalServerError)
+			return
 		}
 	} else {
 		// 提供文件下载
 		w.Header().Set("Content-Disposition", "attachment;")
-		http.ServeFile(w, r, localPath)
+		file, err := os.Open(localPath)
+		if err != nil {
+			logger.Error(fmt.Sprintf("failed to open file: %v", err))
+			http.Error(w, "failed to open file", http.StatusInternalServerError)
+			return
+		}
+		_, err = io.Copy(w, file)
+		if err != nil {
+			logger.Error(fmt.Sprintf("failed to copy file: %v", err))
+			http.Error(w, "failed to write file", http.StatusInternalServerError)
+			return
+		}
 	}
-	return nil
 }

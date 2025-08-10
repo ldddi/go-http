@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	logger "httpserver/pkg/log"
 	"httpserver/pkg/server"
 	"httpserver/pkg/utils"
 	"log"
@@ -63,27 +64,22 @@ func BoolPointer(v bool) *bool {
 }
 
 var DefaultConfig = server.ServerConfig{
-	Addr:               "127.0.0.1:8080",
-	WorkDir:            "",
-	FileNamingStrategy: "uuid",
+	Addr:    "127.0.0.1:8080",
+	WorkDir: "",
 
 	MaxUploadSize:   1024 * 1024,
 	ShutdownTimeout: 15000,
 	ReadTimeout:     time.Duration(15 * time.Second),
 	WriteTimeout:    0,
-
-	EnableCORS: nil,
-	EnableAuth: nil,
 }
 
 // args config
 type App struct {
 	FlagSet *flag.FlagSet
 
-	Addr               string
-	WorkDir            string
-	ConfigFilePath     string
-	FileNamingStrategy string
+	Addr           string
+	WorkDir        string
+	ConfigFilePath string
 
 	MaxUploadSize   int64
 	ShutdownTimeout int
@@ -91,7 +87,6 @@ type App struct {
 	WriteTimeout    int
 
 	EnableAuth boolOpt
-	EnableCORS boolOpt
 }
 
 // Run start app
@@ -121,7 +116,7 @@ func (a *App) ParseConfig(args []string) (*server.ServerConfig, error) {
 	}
 
 	config := DefaultConfig
-	log.Printf("default config: %+v\n", config)
+	logger.Info(fmt.Sprintf("default config: %+v", config))
 
 	if a.ConfigFilePath != "" {
 		f, err := os.Open(a.ConfigFilePath)
@@ -138,9 +133,9 @@ func (a *App) ParseConfig(args []string) (*server.ServerConfig, error) {
 		if err := mergo.Merge(&config, fileConfig, mergo.WithOverride); err != nil {
 			return nil, fmt.Errorf("failed merge default and fileconfig: %w", err)
 		}
-		log.Printf("default config and fileconfig merge result: %+v\n", config)
+		logger.Info(fmt.Sprintf("default config and fileconfig merge result: %+v\n", config))
 	} else {
-		log.Printf("no provided fileconfig\n")
+		logger.Info("no provided fileconfig")
 	}
 
 	if a.WorkDir == "" {
@@ -150,15 +145,14 @@ func (a *App) ParseConfig(args []string) (*server.ServerConfig, error) {
 		}
 
 		a.WorkDir = rootDir
-		log.Printf("no provided WorkDir, use default WorkDir in \"%v\"", a.WorkDir)
+		logger.Info(fmt.Sprintf("no provided WorkDir, use default WorkDir in \"%v\"", a.WorkDir))
 	} else {
-		log.Printf("use WorkDir in \"%v\"", a.WorkDir)
+		logger.Info(fmt.Sprintf("use WorkDir in \"%v\"", a.WorkDir))
 	}
 
 	argsConfig := server.ServerConfig{
-		Addr:               a.Addr,
-		WorkDir:            a.WorkDir,
-		FileNamingStrategy: a.FileNamingStrategy,
+		Addr:    a.Addr,
+		WorkDir: a.WorkDir,
 
 		MaxUploadSize:   a.MaxUploadSize,
 		ShutdownTimeout: a.ShutdownTimeout,
@@ -166,17 +160,10 @@ func (a *App) ParseConfig(args []string) (*server.ServerConfig, error) {
 		WriteTimeout:    time.Duration(a.WriteTimeout),
 	}
 
-	if a.EnableCORS.isSet {
-		argsConfig.EnableCORS = &a.EnableCORS.val
-	}
-	if a.EnableAuth.isSet {
-		argsConfig.EnableAuth = &a.EnableAuth.val
-	}
-
 	if err := mergo.Merge(&config, argsConfig, mergo.WithOverride); err != nil {
 		return nil, fmt.Errorf("failed to merge config from flags: %w", err)
 	}
-	log.Printf("final config: %+v\n", config)
+	logger.Info(fmt.Sprintf("final config: %+v", config))
 
 	return &config, nil
 }
